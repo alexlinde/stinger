@@ -1,0 +1,21 @@
+# FastAPI and server
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Face recognition
+onnxruntime
+insightface
+
+# Image processing
+opencv-python
+Pillow
+
+# Audio playback
+pygame
+
+# Utilities
+python-dotenv
+pydantic
+pydantic-settings
+

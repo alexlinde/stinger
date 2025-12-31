@@ -1,0 +1,125 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-dark: #0a0a0f;
+  --surface: #12121a;
+  --surface-hover: #1a1a24;
+  --accent: #00ff88;
+  --accent-dim: rgba(0, 255, 136, 0.2);
+  --warning: #ff4444;
+  --text-primary: #ffffff;
+  --text-muted: #8a8a9a;
+  --border: rgba(255, 255, 255, 0.1);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+}
+
+body {
+  font-family: 'JetBrains Mono', monospace;
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-dark);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--surface);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--surface-hover);
+}
+
+/* Focus styles */
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Button base styles */
+.btn {
+  @apply px-4 py-2 rounded-lg font-medium transition-all duration-200;
+  @apply border border-transparent;
+}
+
+.btn-primary {
+  @apply bg-stinger-accent text-stinger-bg;
+  @apply hover:shadow-lg hover:shadow-stinger-accent/30;
+}
+
+.btn-secondary {
+  @apply bg-stinger-surface border-stinger-muted/30 text-white;
+  @apply hover:bg-stinger-surface/80 hover:border-stinger-accent/50;
+}
+
+.btn-danger {
+  @apply bg-stinger-warning/20 border-stinger-warning/50 text-stinger-warning;
+  @apply hover:bg-stinger-warning/30;
+}
+
+/* Card styles */
+.card {
+  @apply bg-stinger-surface rounded-xl border border-white/10;
+  @apply transition-all duration-200;
+}
+
+.card:hover {
+  @apply border-stinger-accent/30 shadow-lg shadow-stinger-accent/5;
+}
+
+/* Input styles */
+.input {
+  @apply w-full px-4 py-3 rounded-lg;
+  @apply bg-stinger-bg border border-white/10;
+  @apply text-white placeholder-stinger-muted;
+  @apply focus:border-stinger-accent focus:ring-1 focus:ring-stinger-accent;
+  @apply transition-all duration-200;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.4s ease-out;
+}
+
