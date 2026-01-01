@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from .api.people import router as people_router
 from .api.recognize import router as recognize_router
 from .api.kiosk import router as kiosk_router
+from .api.settings import router as settings_router
 from .core.config import settings
 from .core.face import engine
 from .core.models import HealthResponse
@@ -85,6 +86,7 @@ app.add_middleware(
 app.include_router(people_router, prefix="/api")
 app.include_router(recognize_router, prefix="/api")
 app.include_router(kiosk_router, prefix="/api")
+app.include_router(settings_router, prefix="/api")
 
 
 # Health check

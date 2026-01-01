@@ -3,6 +3,7 @@ import PeopleList from './pages/PeopleList'
 import PersonDetail from './pages/PersonDetail'
 import TestRecognition from './pages/TestRecognition'
 import LiveView from './pages/LiveView'
+import Settings from './pages/Settings'
 
 function App() {
   const location = useLocation()
@@ -33,6 +34,9 @@ function App() {
               <NavLink to="/test" current={location.pathname === '/test'}>
                 Test
               </NavLink>
+              <NavLink to="/settings" current={location.pathname === '/settings'}>
+                Settings
+              </NavLink>
             </nav>
           </div>
         </div>
@@ -45,6 +49,7 @@ function App() {
           <Route path="/person/:name" element={<PersonDetail />} />
           <Route path="/live" element={<LiveView />} />
           <Route path="/test" element={<TestRecognition />} />
+          <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
 

@@ -68,6 +68,53 @@ export interface KioskStatus {
   people_count: number;
 }
 
+export interface Settings {
+  // Server
+  host: string;
+  port: number;
+  debug: boolean;
+  // Paths
+  data_dir: string;
+  people_dir: string;
+  // Face recognition
+  detection_score_threshold: number;
+  embedding_distance_threshold: number;
+  upscale_factor: number;
+  // Audio
+  audio_cooldown_seconds: number;
+  // Model
+  insightface_model: string;
+  // Camera
+  camera_device: number;
+  camera_width: number;
+  camera_height: number;
+  camera_fps: number;
+  // Kiosk
+  kiosk_enabled: boolean;
+  recognition_interval_ms: number;
+  // Performance
+  low_power_mode: boolean;
+  skip_upscale_retry: boolean;
+  min_recognition_interval_ms: number;
+  max_recognition_interval_ms: number;
+  target_process_time_ms: number;
+}
+
+export interface SettingsUpdate {
+  [key: string]: string | number | boolean | undefined;
+}
+
+export interface PendingChange {
+  setting: string;
+  current: string | number | boolean;
+  pending: string;
+}
+
+export interface RestartStatus {
+  restart_required: boolean;
+  pending_changes: PendingChange[];
+}
+
 class ApiClient {
   private async request<T>(
     path: string,
@@ -192,6 +239,25 @@ class ApiClient {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image_base64: imageBase64 }),
+    });
+  }
+
+  // Settings
+  async getSettings(): Promise<Settings> {
+    return this.request<Settings>('/settings');
+  }
+
+  async updateSettings(updates: SettingsUpdate): Promise<Settings> {
+    return this.request<Settings>('/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+  }
+
+  async checkRestartRequired(): Promise<RestartStatus> {
+    return this.request<RestartStatus>('/settings/restart-required', {
+      method: 'POST',
     });
   }
 }
