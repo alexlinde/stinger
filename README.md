@@ -165,7 +165,39 @@ RECOGNITION_INTERVAL_MS=200
 # Face Recognition
 EMBEDDING_DISTANCE_THRESHOLD=0.6
 AUDIO_COOLDOWN_SECONDS=30.0
+
+# Performance (for slower hardware)
+LOW_POWER_MODE=false
+SKIP_UPSCALE_RETRY=false
 ```
+
+### Low Power Mode (Slow Hardware)
+
+For Raspberry Pi or other low-powered devices, create `/opt/stinger/backend/.env`:
+
+```bash
+# Reduced resolution for better performance
+CAMERA_WIDTH=640
+CAMERA_HEIGHT=480
+CAMERA_FPS=10
+
+# Enable adaptive recognition interval
+LOW_POWER_MODE=true
+
+# Skip expensive upscaling when face not found
+SKIP_UPSCALE_RETRY=true
+
+# Base recognition interval (adapts automatically)
+RECOGNITION_INTERVAL_MS=500
+MIN_RECOGNITION_INTERVAL_MS=300
+MAX_RECOGNITION_INTERVAL_MS=2000
+TARGET_PROCESS_TIME_MS=200
+```
+
+With `LOW_POWER_MODE=true`, the system will:
+- Automatically increase recognition interval if processing is slow
+- Decrease interval when system has spare capacity
+- Log performance stats every 30 seconds
 
 ## Adding People
 
@@ -210,10 +242,14 @@ AUDIO_COOLDOWN_SECONDS=30.0
 - Verify permissions: user must be in `audio` group
 - Test with: `speaker-test -t wav`
 
-### Recognition too slow
-- Increase `RECOGNITION_INTERVAL_MS` (default 200ms)
-- Use a more powerful machine
-- Consider using GPU acceleration (CUDA)
+### Recognition too slow / laggy video feed
+- Enable `LOW_POWER_MODE=true` for adaptive performance
+- Reduce resolution: `CAMERA_WIDTH=640`, `CAMERA_HEIGHT=480`
+- Reduce FPS: `CAMERA_FPS=10`
+- Skip upscaling: `SKIP_UPSCALE_RETRY=true`
+- Increase `RECOGNITION_INTERVAL_MS` (default 200ms, try 500-1000ms)
+- Check logs for performance stats: `sudo journalctl -u stinger -f`
+- Consider using GPU acceleration (CUDA) on supported hardware
 
 ## License
 

@@ -36,6 +36,18 @@ class Settings(BaseSettings):
     kiosk_enabled: bool = True
     recognition_interval_ms: int = 200
     
+    # Performance settings for slower hardware
+    # Set to true to enable adaptive frame skipping and reduced processing
+    low_power_mode: bool = False
+    # Skip upscaling retry when no face detected (saves CPU)
+    skip_upscale_retry: bool = False
+    # Minimum recognition interval when adaptive (prevents CPU saturation)
+    min_recognition_interval_ms: int = 100
+    # Maximum recognition interval when adaptive (prevents laggy detection)
+    max_recognition_interval_ms: int = 1000
+    # Target processing time in ms - if exceeded, intervals are increased
+    target_process_time_ms: int = 150
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

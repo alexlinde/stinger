@@ -349,6 +349,10 @@ class FaceRecognitionEngine:
         if detections:
             return detections
 
+        # Skip upscaling retry if configured (saves CPU on slow hardware)
+        if settings.skip_upscale_retry:
+            return detections
+
         # Retry with upscaling
         h, w = image_bgr.shape[:2]
         if max(h, w) >= 1600:

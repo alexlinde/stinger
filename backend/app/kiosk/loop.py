@@ -107,6 +107,7 @@ async def kiosk_loop() -> None:
     - Runs face recognition (non-blocking)
     - Plays theme audio
     - Updates shared state for streaming
+    - Adapts to hardware performance (low_power_mode)
     """
     logger.info("Starting kiosk loop")
     kiosk_state.running = True
@@ -119,14 +120,28 @@ async def kiosk_loop() -> None:
     
     kiosk_state.camera_connected = camera.is_connected()
     
+    # Adaptive recognition interval (can increase if hardware is slow)
     recognition_interval = settings.recognition_interval_ms / 1000.0
+    min_interval = settings.min_recognition_interval_ms / 1000.0
+    max_interval = settings.max_recognition_interval_ms / 1000.0
+    target_process_time = settings.target_process_time_ms / 1000.0
+    
     last_recognition_time = 0.0
     recognition_task: Optional[asyncio.Task] = None
     pending_frame: Optional[np.ndarray] = None
     
+    # Performance tracking
+    recent_process_times: list[float] = []
+    frame_count = 0
+    last_fps_log_time = time.time()
+    
+    if settings.low_power_mode:
+        logger.info("Low power mode enabled - adaptive performance active")
+    
     try:
         while kiosk_state.running:
             loop_start = time.time()
+            frame_count += 1
             
             # Ensure camera is connected
             if not camera.is_connected():
@@ -152,6 +167,29 @@ async def kiosk_loop() -> None:
             if recognition_task is not None and recognition_task.done():
                 try:
                     faces, themes_to_play, process_time_ms = recognition_task.result()
+                    process_time_sec = process_time_ms / 1000.0
+                    
+                    # Track processing times for adaptive interval
+                    recent_process_times.append(process_time_sec)
+                    if len(recent_process_times) > 10:
+                        recent_process_times.pop(0)
+                    
+                    # Adaptive recognition interval (low power mode)
+                    if settings.low_power_mode and recent_process_times:
+                        avg_process_time = sum(recent_process_times) / len(recent_process_times)
+                        
+                        if avg_process_time > target_process_time:
+                            # Processing is slow - increase interval
+                            recognition_interval = min(
+                                max_interval,
+                                recognition_interval * 1.2
+                            )
+                        elif avg_process_time < target_process_time * 0.5:
+                            # Processing is fast - decrease interval
+                            recognition_interval = max(
+                                min_interval,
+                                recognition_interval * 0.9
+                            )
                     
                     # Update faces in state
                     kiosk_state.set_faces(faces)
@@ -197,6 +235,18 @@ async def kiosk_loop() -> None:
             # Convert to JPEG and update state
             jpeg_bytes = frame_to_jpeg(frame)
             kiosk_state.set_frame(jpeg_bytes)
+            
+            # Log FPS periodically (every 30 seconds)
+            if settings.low_power_mode and (now - last_fps_log_time) >= 30.0:
+                elapsed_log = now - last_fps_log_time
+                fps = frame_count / elapsed_log
+                avg_proc = (sum(recent_process_times) / len(recent_process_times) * 1000) if recent_process_times else 0
+                logger.info(
+                    "Performance: %.1f FPS, avg recognition: %.0fms, interval: %.0fms",
+                    fps, avg_proc, recognition_interval * 1000
+                )
+                frame_count = 0
+                last_fps_log_time = now
             
             # Calculate sleep time to maintain target FPS
             elapsed = time.time() - loop_start
