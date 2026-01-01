@@ -8,6 +8,7 @@ set -e
 
 INSTALL_DIR="/opt/stinger"
 STINGER_USER="stinger"
+SERVICE_WAS_RUNNING=false
 
 echo "=========================================="
 echo "  Stinger Face Recognition Setup"
@@ -18,6 +19,13 @@ echo ""
 if [ "$EUID" -ne 0 ]; then
     echo "Please run as root: sudo ./setup.sh"
     exit 1
+fi
+
+# Check if service is already running and stop it
+if systemctl is-active --quiet stinger 2>/dev/null; then
+    echo "Stopping existing stinger service..."
+    systemctl stop stinger
+    SERVICE_WAS_RUNNING=true
 fi
 
 echo "[1/8] Installing system dependencies..."
@@ -52,12 +60,22 @@ chown "$STINGER_USER:$STINGER_USER" "$INSTALL_DIR"
 
 echo ""
 echo "[4/8] Copying application files..."
-# Copy backend
+# Copy backend (preserve existing data and .env)
+if [ -d "$INSTALL_DIR/backend/data" ]; then
+    echo "  Preserving existing data directory..."
+    mv "$INSTALL_DIR/backend/data" "$INSTALL_DIR/data_backup"
+fi
+if [ -f "$INSTALL_DIR/backend/.env" ]; then
+    echo "  Preserving existing .env file..."
+    cp "$INSTALL_DIR/backend/.env" "$INSTALL_DIR/env_backup"
+fi
+
 cp -r backend "$INSTALL_DIR/"
-# Copy frontend
 cp -r frontend "$INSTALL_DIR/"
-# Create data directory
-mkdir -p "$INSTALL_DIR/data/people"
+cp deploy/systemd/stinger.service /etc/systemd/system/
+
+# Create data directory if it doesn't exist
+mkdir -p "$INSTALL_DIR/backend/data/people"
 chown -R "$STINGER_USER:$STINGER_USER" "$INSTALL_DIR"
 
 echo ""
@@ -81,17 +99,27 @@ chown -R "$STINGER_USER:$STINGER_USER" "$INSTALL_DIR/backend/static"
 
 echo ""
 echo "[8/8] Installing systemd service..."
-cp deploy/systemd/stinger.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable stinger
+
+# Restart service if it was running before
+if [ "$SERVICE_WAS_RUNNING" = true ]; then
+    echo ""
+    echo "Restarting stinger service..."
+    systemctl start stinger
+fi
 
 echo ""
 echo "=========================================="
 echo "  Setup Complete!"
 echo "=========================================="
 echo ""
-echo "To start Stinger:"
-echo "  sudo systemctl start stinger"
+if [ "$SERVICE_WAS_RUNNING" = true ]; then
+    echo "Stinger service has been restarted."
+else
+    echo "To start Stinger:"
+    echo "  sudo systemctl start stinger"
+fi
 echo ""
 echo "To view logs:"
 echo "  sudo journalctl -u stinger -f"
