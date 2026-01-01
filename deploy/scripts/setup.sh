@@ -60,16 +60,6 @@ chown "$STINGER_USER:$STINGER_USER" "$INSTALL_DIR"
 
 echo ""
 echo "[4/8] Copying application files..."
-# Copy backend (preserve existing data and .env)
-if [ -d "$INSTALL_DIR/backend/data" ]; then
-    echo "  Preserving existing data directory..."
-    mv "$INSTALL_DIR/backend/data" "$INSTALL_DIR/data_backup"
-fi
-if [ -f "$INSTALL_DIR/backend/.env" ]; then
-    echo "  Preserving existing .env file..."
-    cp "$INSTALL_DIR/backend/.env" "$INSTALL_DIR/env_backup"
-fi
-
 cp -r backend "$INSTALL_DIR/"
 cp -r frontend "$INSTALL_DIR/"
 cp deploy/systemd/stinger.service /etc/systemd/system/
