@@ -8,8 +8,8 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from ..core.config import settings
-from ..core.face import engine
+from ..core.config import settings, get_runtime_settings
+from ..core.face import engine, parse_camera_masks
 from .camera import Camera, create_camera
 from .audio import play_theme
 from .state import kiosk_state, RecognitionEvent
@@ -85,6 +85,48 @@ def draw_face_overlays(frame: np.ndarray, faces: list[dict]) -> np.ndarray:
     return result
 
 
+def draw_mask_overlay(frame: np.ndarray, masks: list[dict]) -> np.ndarray:
+    """Draw white semi-transparent overlays on masked regions.
+    
+    Args:
+        frame: BGR image as numpy array
+        masks: List of mask dicts with normalized coordinates (0-1)
+        
+    Returns:
+        Frame with white 50% opacity overlay on masked regions
+    """
+    if not masks:
+        return frame
+    
+    result = frame.copy()
+    h, w = result.shape[:2]
+    
+    # Create overlay layer
+    overlay = result.copy()
+    
+    for mask in masks:
+        # Convert normalized coordinates to pixel coordinates
+        x = int(mask['x'] * w)
+        y = int(mask['y'] * h)
+        mask_w = int(mask['width'] * w)
+        mask_h = int(mask['height'] * h)
+        
+        # Clamp to image bounds
+        x1 = max(0, x)
+        y1 = max(0, y)
+        x2 = min(w, x + mask_w)
+        y2 = min(h, y + mask_h)
+        
+        # Draw filled white rectangle on overlay
+        if x2 > x1 and y2 > y1:
+            cv2.rectangle(overlay, (x1, y1), (x2, y2), (255, 255, 255), -1)
+    
+    # Blend overlay with original frame (50% opacity)
+    cv2.addWeighted(overlay, 0.5, result, 0.5, 0, result)
+    
+    return result
+
+
 def frame_to_jpeg(frame: np.ndarray, quality: int = 80) -> bytes:
     """Convert a frame to JPEG bytes."""
     encode_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
@@ -92,10 +134,10 @@ def frame_to_jpeg(frame: np.ndarray, quality: int = 80) -> bytes:
     return buffer.tobytes()
 
 
-def run_recognition_sync(frame: np.ndarray) -> tuple[list[dict], list[dict], float]:
+def run_recognition_sync(frame: np.ndarray, masks: list[dict]) -> tuple[list[dict], list[dict], float]:
     """Run face recognition synchronously (for thread pool)."""
     start = time.time()
-    faces, themes = engine.recognize_frame(frame)
+    faces, themes = engine.recognize_frame(frame, masks=masks)
     process_time_ms = (time.time() - start) * 1000
     return faces, themes, process_time_ms
 
@@ -120,22 +162,30 @@ async def kiosk_loop() -> None:
     
     kiosk_state.camera_connected = camera.is_connected()
     
+    # Get initial runtime settings
+    rs = get_runtime_settings()
+    
     # Adaptive recognition interval (can increase if hardware is slow)
-    recognition_interval = settings.recognition_interval_ms / 1000.0
-    min_interval = settings.min_recognition_interval_ms / 1000.0
-    max_interval = settings.max_recognition_interval_ms / 1000.0
-    target_process_time = settings.target_process_time_ms / 1000.0
+    recognition_interval = rs.recognition_interval_ms / 1000.0
+    min_interval = rs.min_recognition_interval_ms / 1000.0
+    max_interval = rs.max_recognition_interval_ms / 1000.0
+    target_process_time = rs.target_process_time_ms / 1000.0
     
     last_recognition_time = 0.0
     recognition_task: Optional[asyncio.Task] = None
     pending_frame: Optional[np.ndarray] = None
+    
+    # Cache for runtime settings (re-read periodically to pick up changes)
+    cached_masks: list[dict] = []
+    last_settings_check_time = 0.0
+    settings_check_interval = 1.0  # Re-check settings every second
     
     # Performance tracking
     recent_process_times: list[float] = []
     frame_count = 0
     last_fps_log_time = time.time()
     
-    if settings.low_power_mode:
+    if rs.low_power_mode:
         logger.info("Low power mode enabled - adaptive performance active")
     
     try:
@@ -163,6 +213,27 @@ async def kiosk_loop() -> None:
             
             kiosk_state.camera_connected = True
             
+            # Get current time for this iteration
+            now = time.time()
+            
+            # Refresh runtime settings periodically (to pick up changes)
+            if (now - last_settings_check_time) >= settings_check_interval:
+                rs = get_runtime_settings()
+                cached_masks = parse_camera_masks(rs.camera_masks)
+                # Update interval settings (but preserve adaptive adjustments)
+                base_interval = rs.recognition_interval_ms / 1000.0
+                min_interval = rs.min_recognition_interval_ms / 1000.0
+                max_interval = rs.max_recognition_interval_ms / 1000.0
+                target_process_time = rs.target_process_time_ms / 1000.0
+                # Reset recognition interval to base if it was changed
+                if not rs.low_power_mode:
+                    recognition_interval = base_interval
+                last_settings_check_time = now
+            
+            # Mirror the frame if enabled
+            if rs.mirror_feed:
+                frame = cv2.flip(frame, 1)
+            
             # Check if recognition task completed
             if recognition_task is not None and recognition_task.done():
                 try:
@@ -175,7 +246,7 @@ async def kiosk_loop() -> None:
                         recent_process_times.pop(0)
                     
                     # Adaptive recognition interval (low power mode)
-                    if settings.low_power_mode and recent_process_times:
+                    if rs.low_power_mode and recent_process_times:
                         avg_process_time = sum(recent_process_times) / len(recent_process_times)
                         
                         if avg_process_time > target_process_time:
@@ -215,14 +286,13 @@ async def kiosk_loop() -> None:
                 recognition_task = None
             
             # Start new recognition if it's time and no recognition is running
-            now = time.time()
             should_recognize = (now - last_recognition_time) >= recognition_interval
             
             if should_recognize and engine.is_initialized and recognition_task is None:
                 last_recognition_time = now
                 pending_frame = frame.copy()
                 recognition_task = asyncio.create_task(
-                    asyncio.to_thread(run_recognition_sync, pending_frame)
+                    asyncio.to_thread(run_recognition_sync, pending_frame, cached_masks)
                 )
             
             # Use cached faces for overlay
@@ -232,12 +302,16 @@ async def kiosk_loop() -> None:
             if faces:
                 frame = draw_face_overlays(frame, faces)
             
+            # Draw mask overlay (white 50% opacity)
+            if cached_masks:
+                frame = draw_mask_overlay(frame, cached_masks)
+            
             # Convert to JPEG and update state
             jpeg_bytes = frame_to_jpeg(frame)
             kiosk_state.set_frame(jpeg_bytes)
             
             # Log FPS periodically (every 30 seconds)
-            if settings.low_power_mode and (now - last_fps_log_time) >= 30.0:
+            if rs.low_power_mode and (now - last_fps_log_time) >= 30.0:
                 elapsed_log = now - last_fps_log_time
                 fps = frame_count / elapsed_log
                 avg_proc = (sum(recent_process_times) / len(recent_process_times) * 1000) if recent_process_times else 0
@@ -250,7 +324,7 @@ async def kiosk_loop() -> None:
             
             # Calculate sleep time to maintain target FPS
             elapsed = time.time() - loop_start
-            target_interval = 1.0 / settings.camera_fps
+            target_interval = 1.0 / rs.camera_fps
             sleep_time = max(0.001, target_interval - elapsed)
             await asyncio.sleep(sleep_time)
             
@@ -275,7 +349,8 @@ async def kiosk_loop() -> None:
 
 async def start_kiosk() -> asyncio.Task:
     """Start the kiosk loop as a background task."""
-    if not settings.kiosk_enabled:
+    rs = get_runtime_settings()
+    if not rs.kiosk_enabled:
         logger.info("Kiosk is disabled in settings")
         return None
     

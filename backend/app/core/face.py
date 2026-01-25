@@ -1,4 +1,5 @@
 """Face detection and recognition using InsightFace."""
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -10,7 +11,65 @@ import numpy as np
 from PIL import Image, ImageOps
 from insightface.app import FaceAnalysis
 
-from .config import settings
+from .config import settings, get_runtime_settings
+
+
+def parse_camera_masks(masks_json: str) -> list[dict]:
+    """Parse camera masks from JSON string.
+    
+    Returns list of mask dicts with x, y, width, height as normalized coordinates (0-1).
+    """
+    if not masks_json or not masks_json.strip():
+        return []
+    try:
+        masks = json.loads(masks_json)
+        if not isinstance(masks, list):
+            return []
+        # Validate each mask has required fields
+        valid_masks = []
+        for mask in masks:
+            if isinstance(mask, dict) and all(k in mask for k in ['x', 'y', 'width', 'height']):
+                valid_masks.append(mask)
+        return valid_masks
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def apply_masks_to_image(image_bgr: np.ndarray, masks: list[dict]) -> np.ndarray:
+    """Apply masks to an image by setting masked regions to black.
+    
+    Args:
+        image_bgr: BGR image as numpy array
+        masks: List of mask dicts with normalized coordinates (0-1)
+        
+    Returns:
+        Copy of image with masked regions blacked out
+    """
+    if not masks:
+        return image_bgr
+    
+    # Create a copy to avoid modifying the original
+    result = image_bgr.copy()
+    h, w = result.shape[:2]
+    
+    for mask in masks:
+        # Convert normalized coordinates to pixel coordinates
+        x = int(mask['x'] * w)
+        y = int(mask['y'] * h)
+        mask_w = int(mask['width'] * w)
+        mask_h = int(mask['height'] * h)
+        
+        # Clamp to image bounds
+        x1 = max(0, x)
+        y1 = max(0, y)
+        x2 = min(w, x + mask_w)
+        y2 = min(h, y + mask_h)
+        
+        # Black out the masked region
+        if x2 > x1 and y2 > y1:
+            result[y1:y2, x1:x2] = 0
+    
+    return result
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +98,8 @@ class Person:
         if not self.has_theme():
             return False
         time_since_seen = now - self.last_seen
-        return self.last_played == 0.0 or time_since_seen >= settings.audio_cooldown_seconds
+        rs = get_runtime_settings()
+        return self.last_played == 0.0 or time_since_seen >= rs.audio_cooldown_seconds
 
     def mark_seen(self, now: float) -> None:
         """Update last seen timestamp."""
@@ -305,16 +365,29 @@ class FaceRecognitionEngine:
 
         return best_name, best_dist
 
-    def recognize_frame(self, image_bgr: np.ndarray) -> tuple[list[dict], list[dict]]:
-        """Recognize faces in a frame and return matches and themes to play."""
-        detections = self.detect_faces(image_bgr)
+    def recognize_frame(self, image_bgr: np.ndarray, masks: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+        """Recognize faces in a frame and return matches and themes to play.
+        
+        Args:
+            image_bgr: BGR image as numpy array
+            masks: Optional list of mask dicts with normalized coordinates.
+                   If None, masks are loaded from runtime settings.
+        """
+        rs = get_runtime_settings()
+        
+        # Apply masks to exclude regions from face detection
+        if masks is None:
+            masks = parse_camera_masks(rs.camera_masks)
+        
+        masked_image = apply_masks_to_image(image_bgr, masks)
+        detections = self.detect_faces(masked_image)
         faces = []
         themes_to_play = []
         now = time.time()
 
         for det in detections:
             name, distance = self.match_face(det.embedding)
-            is_match = distance < settings.embedding_distance_threshold
+            is_match = distance < rs.embedding_distance_threshold
 
             faces.append({
                 "box": {
@@ -345,12 +418,14 @@ class FaceRecognitionEngine:
 
     def _detect_with_retry(self, image_bgr: np.ndarray) -> list[FaceDetection]:
         """Detect faces with optional upscaling retry."""
+        rs = get_runtime_settings()
+        
         detections = self._detect_faces_raw(image_bgr)
         if detections:
             return detections
 
         # Skip upscaling retry if configured (saves CPU on slow hardware)
-        if settings.skip_upscale_retry:
+        if rs.skip_upscale_retry:
             return detections
 
         # Retry with upscaling
@@ -358,7 +433,7 @@ class FaceRecognitionEngine:
         if max(h, w) >= 1600:
             return detections
 
-        factor = settings.upscale_factor
+        factor = rs.upscale_factor
         scaled = cv2.resize(
             image_bgr,
             (int(w * factor), int(h * factor)),
@@ -380,6 +455,7 @@ class FaceRecognitionEngine:
         if self._detector is None:
             return []
 
+        rs = get_runtime_settings()
         faces = self._detector.get(image_bgr)
         results = []
 
@@ -387,7 +463,7 @@ class FaceRecognitionEngine:
             x1, y1, x2, y2 = face.bbox.astype(int)
             score = float(face.det_score)
 
-            if score < settings.detection_score_threshold or face.normed_embedding is None:
+            if score < rs.detection_score_threshold or face.normed_embedding is None:
                 continue
 
             results.append(FaceDetection(

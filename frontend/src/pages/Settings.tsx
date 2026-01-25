@@ -1,43 +1,25 @@
 import { useState, useEffect, useCallback } from 'react'
-import { api, Settings as SettingsType, PendingChange } from '../api'
+import { api, ConfigSettings, RuntimeSettings, MaskRect, parseCameraMasks, serializeCameraMasks } from '../api'
+import { MaskEditor } from '../components/MaskEditor'
 
-interface SettingField {
-  key: keyof SettingsType
+interface RuntimeSettingField {
+  key: keyof RuntimeSettings
   label: string
   description: string
-  type: 'text' | 'number' | 'boolean' | 'select'
-  options?: { value: string; label: string }[]
+  type: 'text' | 'number' | 'boolean'
   min?: number
   max?: number
   step?: number
 }
 
-interface SettingGroup {
+interface RuntimeSettingGroup {
   title: string
   icon: string
-  fields: SettingField[]
+  fields: RuntimeSettingField[]
 }
 
-const settingGroups: SettingGroup[] = [
-  {
-    title: 'Server',
-    icon: '🖥️',
-    fields: [
-      { key: 'host', label: 'Host', description: 'Server bind address', type: 'text' },
-      { key: 'port', label: 'Port', description: 'Server port number', type: 'number', min: 1, max: 65535 },
-      { key: 'debug', label: 'Debug Mode', description: 'Enable verbose logging', type: 'boolean' },
-    ],
-  },
-  {
-    title: 'Camera',
-    icon: '📷',
-    fields: [
-      { key: 'camera_device', label: 'Device Index', description: 'Camera device number (0 = default)', type: 'number', min: 0, max: 10 },
-      { key: 'camera_width', label: 'Width', description: 'Capture width in pixels', type: 'number', min: 320, max: 3840, step: 160 },
-      { key: 'camera_height', label: 'Height', description: 'Capture height in pixels', type: 'number', min: 240, max: 2160, step: 120 },
-      { key: 'camera_fps', label: 'FPS', description: 'Target frames per second', type: 'number', min: 1, max: 60 },
-    ],
-  },
+// Editable runtime settings groups
+const runtimeSettingGroups: RuntimeSettingGroup[] = [
   {
     title: 'Face Recognition',
     icon: '👁️',
@@ -45,12 +27,6 @@ const settingGroups: SettingGroup[] = [
       { key: 'detection_score_threshold', label: 'Detection Threshold', description: 'Face detection confidence (0.0-1.0)', type: 'number', min: 0.1, max: 1.0, step: 0.05 },
       { key: 'embedding_distance_threshold', label: 'Match Threshold', description: 'Face matching strictness (lower = stricter)', type: 'number', min: 0.1, max: 1.5, step: 0.05 },
       { key: 'upscale_factor', label: 'Upscale Factor', description: 'Image upscale for better detection', type: 'number', min: 1.0, max: 4.0, step: 0.1 },
-      { key: 'insightface_model', label: 'Model', description: 'InsightFace model name', type: 'select', options: [
-        { value: 'buffalo_l', label: 'Buffalo L (Best Quality)' },
-        { value: 'buffalo_m', label: 'Buffalo M (Balanced)' },
-        { value: 'buffalo_s', label: 'Buffalo S (Fastest)' },
-        { value: 'buffalo_sc', label: 'Buffalo SC (Smallest)' },
-      ]},
     ],
   },
   {
@@ -66,45 +42,39 @@ const settingGroups: SettingGroup[] = [
     fields: [
       { key: 'kiosk_enabled', label: 'Enabled', description: 'Enable automatic face recognition', type: 'boolean' },
       { key: 'recognition_interval_ms', label: 'Recognition Interval', description: 'Milliseconds between recognition attempts', type: 'number', min: 50, max: 2000, step: 50 },
+      { key: 'camera_fps', label: 'Target FPS', description: 'Target frames per second for camera capture', type: 'number', min: 1, max: 60 },
+      { key: 'mirror_feed', label: 'Mirror Feed', description: 'Flip the video feed horizontally (selfie mode)', type: 'boolean' },
     ],
   },
   {
     title: 'Performance',
     icon: '⚡',
     fields: [
-      { key: 'low_power_mode', label: 'Low Power Mode', description: 'Reduce CPU usage on slower hardware', type: 'boolean' },
-      { key: 'skip_upscale_retry', label: 'Skip Upscale Retry', description: 'Skip retry with upscaling when no face found', type: 'boolean' },
-      { key: 'min_recognition_interval_ms', label: 'Min Interval', description: 'Minimum recognition interval (ms)', type: 'number', min: 50, max: 500, step: 25 },
-      { key: 'max_recognition_interval_ms', label: 'Max Interval', description: 'Maximum recognition interval (ms)', type: 'number', min: 200, max: 5000, step: 100 },
-      { key: 'target_process_time_ms', label: 'Target Process Time', description: 'Target processing time before throttling (ms)', type: 'number', min: 50, max: 500, step: 25 },
-    ],
-  },
-  {
-    title: 'Paths',
-    icon: '📁',
-    fields: [
-      { key: 'data_dir', label: 'Data Directory', description: 'Path to data storage', type: 'text' },
-      { key: 'people_dir', label: 'People Directory', description: 'Path to people photos', type: 'text' },
+      { key: 'low_power_mode', label: 'Low Power Mode', description: 'Enable adaptive performance for slower hardware', type: 'boolean' },
     ],
   },
 ]
 
 export default function Settings() {
-  const [settings, setSettings] = useState<SettingsType | null>(null)
+  const [configSettings, setConfigSettings] = useState<ConfigSettings | null>(null)
+  const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-  const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([])
   const [editedValues, setEditedValues] = useState<Record<string, string | number | boolean>>({})
+  const [maskEditorOpen, setMaskEditorOpen] = useState(false)
+  const [masks, setMasks] = useState<MaskRect[]>([])
 
   const loadSettings = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
       const data = await api.getSettings()
-      setSettings(data)
+      setConfigSettings(data.config)
+      setRuntimeSettings(data.runtime)
       setEditedValues({})
+      setMasks(parseCameraMasks(data.runtime.camera_masks))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load settings')
     } finally {
@@ -112,29 +82,31 @@ export default function Settings() {
     }
   }, [])
 
-  const checkPendingChanges = useCallback(async () => {
+  const handleSaveMasks = useCallback(async (newMasks: MaskRect[]) => {
     try {
-      const status = await api.checkRestartRequired()
-      setPendingChanges(status.pending_changes)
-    } catch {
-      // Ignore errors checking restart status
+      const updated = await api.updateSettings({ camera_masks: serializeCameraMasks(newMasks) })
+      setRuntimeSettings(updated)
+      setMasks(newMasks)
+      setSuccess('Masks saved!')
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save masks')
     }
   }, [])
 
   useEffect(() => {
     loadSettings()
-    checkPendingChanges()
-  }, [loadSettings, checkPendingChanges])
+  }, [loadSettings])
 
-  const handleChange = (key: keyof SettingsType, value: string | number | boolean) => {
+  const handleChange = (key: keyof RuntimeSettings, value: string | number | boolean) => {
     setEditedValues(prev => ({ ...prev, [key]: value }))
   }
 
-  const getValue = (key: keyof SettingsType): string | number | boolean => {
+  const getValue = (key: keyof RuntimeSettings): string | number | boolean => {
     if (key in editedValues) {
       return editedValues[key]
     }
-    return settings ? settings[key] : ''
+    return runtimeSettings ? runtimeSettings[key] : ''
   }
 
   const hasChanges = Object.keys(editedValues).length > 0
@@ -146,10 +118,11 @@ export default function Settings() {
       setSaving(true)
       setError(null)
       setSuccess(null)
-      await api.updateSettings(editedValues)
+      const updated = await api.updateSettings(editedValues)
+      setRuntimeSettings(updated)
       setEditedValues({})
-      setSuccess('Settings saved! Restart the server for changes to take effect.')
-      await checkPendingChanges()
+      setSuccess('Settings saved!')
+      setTimeout(() => setSuccess(null), 3000)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save settings')
     } finally {
@@ -171,7 +144,7 @@ export default function Settings() {
     )
   }
 
-  if (!settings) {
+  if (!configSettings || !runtimeSettings) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-stinger-warning">Failed to load settings</div>
@@ -209,24 +182,6 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Pending Changes Banner */}
-      {pendingChanges.length > 0 && (
-        <div className="mb-6 p-4 rounded-lg bg-amber-500/10 border border-amber-500/30">
-          <div className="flex items-start gap-3">
-            <span className="text-amber-400 text-xl">⚠️</span>
-            <div>
-              <h4 className="font-medium text-amber-400">Restart Required</h4>
-              <p className="text-sm text-amber-300/80 mt-1">
-                {pendingChanges.length} setting{pendingChanges.length > 1 ? 's have' : ' has'} been changed but require{pendingChanges.length === 1 ? 's' : ''} a server restart to take effect.
-              </p>
-              <div className="mt-2 text-xs text-amber-300/60 font-mono">
-                {pendingChanges.map(c => c.setting).join(', ')}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Success Message */}
       {success && (
         <div className="mb-6 p-4 rounded-lg bg-stinger-accent/10 border border-stinger-accent/30 text-stinger-accent">
@@ -241,9 +196,70 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Settings Groups */}
+      {/* Mask Editor Modal */}
+      <MaskEditor
+        isOpen={maskEditorOpen}
+        onClose={() => setMaskEditorOpen(false)}
+        onSave={handleSaveMasks}
+        initialMasks={masks}
+      />
+
+      {/* System Configuration (Read-only) */}
+      <div className="card p-6 mb-6">
+        <div className="flex items-center gap-3 mb-6">
+          <span className="text-2xl">🖥️</span>
+          <div>
+            <h3 className="text-lg font-display font-bold text-white">System Configuration</h3>
+            <p className="text-xs text-stinger-muted">Read-only settings configured in .env file</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <ConfigItem label="Host" value={configSettings.host} />
+          <ConfigItem label="Port" value={configSettings.port} />
+          <ConfigItem label="Debug" value={configSettings.debug ? 'Enabled' : 'Disabled'} />
+          <ConfigItem label="Data Dir" value={configSettings.data_dir} />
+          <ConfigItem label="Model" value={configSettings.insightface_model} />
+          <ConfigItem label="Camera" value={`Device ${configSettings.camera_device}`} />
+          <ConfigItem label="Resolution" value={`${configSettings.camera_width}x${configSettings.camera_height}`} />
+        </div>
+      </div>
+
+      {/* Camera Masks Section */}
+      <div className="card p-6 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">📷</span>
+            <div>
+              <h3 className="text-lg font-display font-bold text-white">Camera Masks</h3>
+              <p className="text-xs text-stinger-muted">Define regions to exclude from face detection</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setMaskEditorOpen(true)}
+            className="btn btn-secondary flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+            </svg>
+            Edit Masks
+            {masks.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 text-xs rounded-full bg-stinger-accent/20 text-stinger-accent">
+                {masks.length}
+              </span>
+            )}
+          </button>
+        </div>
+        {masks.length === 0 ? (
+          <p className="text-sm text-stinger-muted">No masks defined. Click "Edit Masks" to add regions to exclude.</p>
+        ) : (
+          <p className="text-sm text-stinger-muted">{masks.length} mask region{masks.length > 1 ? 's' : ''} defined.</p>
+        )}
+      </div>
+
+      {/* Runtime Settings Groups */}
       <div className="space-y-6">
-        {settingGroups.map((group) => (
+        {runtimeSettingGroups.map((group) => (
           <div key={group.title} className="card p-6">
             <div className="flex items-center gap-3 mb-6">
               <span className="text-2xl">{group.icon}</span>
@@ -251,11 +267,11 @@ export default function Settings() {
             </div>
             <div className="grid gap-4">
               {group.fields.map((field) => (
-                <SettingRow
+                <RuntimeSettingRow
                   key={field.key}
                   field={field}
                   value={getValue(field.key)}
-                  originalValue={settings[field.key]}
+                  originalValue={runtimeSettings[field.key]}
                   onChange={(value) => handleChange(field.key, value)}
                 />
               ))}
@@ -289,14 +305,24 @@ export default function Settings() {
   )
 }
 
-interface SettingRowProps {
-  field: SettingField
+// Read-only config item display
+function ConfigItem({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="bg-stinger-bg/50 rounded-lg p-3">
+      <div className="text-xs text-stinger-muted mb-1">{label}</div>
+      <div className="text-sm text-white font-mono truncate">{value}</div>
+    </div>
+  )
+}
+
+interface RuntimeSettingRowProps {
+  field: RuntimeSettingField
   value: string | number | boolean
   originalValue: string | number | boolean
   onChange: (value: string | number | boolean) => void
 }
 
-function SettingRow({ field, value, originalValue, onChange }: SettingRowProps) {
+function RuntimeSettingRow({ field, value, originalValue, onChange }: RuntimeSettingRowProps) {
   const isModified = value !== originalValue
 
   return (
@@ -326,18 +352,6 @@ function SettingRow({ field, value, originalValue, onChange }: SettingRowProps) 
               }`}
             />
           </button>
-        ) : field.type === 'select' ? (
-          <select
-            value={String(value)}
-            onChange={(e) => onChange(e.target.value)}
-            className="bg-stinger-bg border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:border-stinger-accent focus:outline-none w-48"
-          >
-            {field.options?.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
         ) : field.type === 'number' ? (
           <input
             type="number"

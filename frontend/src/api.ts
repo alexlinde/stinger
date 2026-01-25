@@ -42,6 +42,49 @@ export interface FaceBox {
   height: number;
 }
 
+export interface MaskRect {
+  x: number;       // Normalized x coordinate (0-1)
+  y: number;       // Normalized y coordinate (0-1)
+  width: number;   // Normalized width (0-1)
+  height: number;  // Normalized height (0-1)
+}
+
+/**
+ * Parse camera masks from JSON string
+ */
+export function parseCameraMasks(masksJson: string): MaskRect[] {
+  if (!masksJson || !masksJson.trim()) {
+    return [];
+  }
+  try {
+    const masks = JSON.parse(masksJson);
+    if (!Array.isArray(masks)) {
+      return [];
+    }
+    return masks.filter(
+      (m): m is MaskRect =>
+        typeof m === 'object' &&
+        m !== null &&
+        typeof m.x === 'number' &&
+        typeof m.y === 'number' &&
+        typeof m.width === 'number' &&
+        typeof m.height === 'number'
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Serialize camera masks to JSON string
+ */
+export function serializeCameraMasks(masks: MaskRect[]): string {
+  if (!masks || masks.length === 0) {
+    return '';
+  }
+  return JSON.stringify(masks);
+}
+
 export interface FaceMatch {
   box: FaceBox;
   name: string;
@@ -68,51 +111,55 @@ export interface KioskStatus {
   people_count: number;
 }
 
-export interface Settings {
-  // Server
+/**
+ * Read-only configuration settings (require restart to change)
+ */
+export interface ConfigSettings {
   host: string;
   port: number;
   debug: boolean;
-  // Paths
   data_dir: string;
-  people_dir: string;
-  // Face recognition
-  detection_score_threshold: number;
-  embedding_distance_threshold: number;
-  upscale_factor: number;
-  // Audio
-  audio_cooldown_seconds: number;
-  // Model
   insightface_model: string;
-  // Camera
   camera_device: number;
   camera_width: number;
   camera_height: number;
+}
+
+/**
+ * Runtime settings that can be changed without restart
+ */
+export interface RuntimeSettings {
+  detection_score_threshold: number;
+  embedding_distance_threshold: number;
+  upscale_factor: number;
+  audio_cooldown_seconds: number;
   camera_fps: number;
-  // Kiosk
+  camera_masks: string;  // JSON string of MaskRect[]
+  mirror_feed: boolean;
   kiosk_enabled: boolean;
   recognition_interval_ms: number;
-  // Performance
   low_power_mode: boolean;
-  skip_upscale_retry: boolean;
-  min_recognition_interval_ms: number;
-  max_recognition_interval_ms: number;
-  target_process_time_ms: number;
 }
 
-export interface SettingsUpdate {
-  [key: string]: string | number | boolean | undefined;
+/**
+ * Combined settings response from API
+ */
+export interface AllSettings {
+  config: ConfigSettings;
+  runtime: RuntimeSettings;
 }
 
-export interface PendingChange {
-  setting: string;
-  current: string | number | boolean;
-  pending: string;
-}
-
-export interface RestartStatus {
-  restart_required: boolean;
-  pending_changes: PendingChange[];
+export interface RuntimeSettingsUpdate {
+  detection_score_threshold?: number;
+  embedding_distance_threshold?: number;
+  upscale_factor?: number;
+  audio_cooldown_seconds?: number;
+  camera_fps?: number;
+  camera_masks?: string;
+  mirror_feed?: boolean;
+  kiosk_enabled?: boolean;
+  recognition_interval_ms?: number;
+  low_power_mode?: boolean;
 }
 
 class ApiClient {
@@ -243,21 +290,15 @@ class ApiClient {
   }
 
   // Settings
-  async getSettings(): Promise<Settings> {
-    return this.request<Settings>('/settings');
+  async getSettings(): Promise<AllSettings> {
+    return this.request<AllSettings>('/settings');
   }
 
-  async updateSettings(updates: SettingsUpdate): Promise<Settings> {
-    return this.request<Settings>('/settings', {
+  async updateSettings(updates: RuntimeSettingsUpdate): Promise<RuntimeSettings> {
+    return this.request<RuntimeSettings>('/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
-    });
-  }
-
-  async checkRestartRequired(): Promise<RestartStatus> {
-    return this.request<RestartStatus>('/settings/restart-required', {
-      method: 'POST',
     });
   }
 }

@@ -7,7 +7,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from ..core.config import settings
+from ..core.config import settings, get_runtime_settings
 
 logger = logging.getLogger(__name__)
 
@@ -111,10 +111,11 @@ class Camera:
 
 def create_camera() -> Camera:
     """Create a camera instance from settings."""
+    rs = get_runtime_settings()
     return Camera(
         device=settings.camera_device,
         width=settings.camera_width,
         height=settings.camera_height,
-        fps=settings.camera_fps,
+        fps=rs.camera_fps,
     )
 

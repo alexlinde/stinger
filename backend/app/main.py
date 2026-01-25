@@ -12,7 +12,7 @@ from .api.people import router as people_router
 from .api.recognize import router as recognize_router
 from .api.kiosk import router as kiosk_router
 from .api.settings import router as settings_router
-from .core.config import settings
+from .core.config import settings, get_runtime_settings
 from .core.face import engine
 from .core.models import HealthResponse
 from .kiosk.loop import start_kiosk, stop_kiosk
@@ -42,7 +42,8 @@ async def lifespan(app: FastAPI):
     logger.info("Startup complete. %d people loaded.", len(engine.people))
     
     # Start kiosk background task
-    if settings.kiosk_enabled:
+    rs = get_runtime_settings()
+    if rs.kiosk_enabled:
         logger.info("Starting kiosk background task...")
         _kiosk_task = await start_kiosk()
     else:
