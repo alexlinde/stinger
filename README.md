@@ -135,8 +135,11 @@ npm run dev
 git clone https://github.com/yourusername/stinger.git
 cd stinger
 
-# Run the setup script
+# Run the setup script (CPU only)
 sudo ./deploy/scripts/setup.sh
+
+# OR with NVIDIA GPU support (requires drivers installed first)
+sudo ./deploy/scripts/setup.sh --cuda
 ```
 
 ### Start the Service
@@ -211,6 +214,95 @@ With Low Power Mode enabled, the system will:
 - Automatically increase recognition interval if processing is slow
 - Decrease interval when system has spare capacity
 - Log performance stats every 30 seconds
+
+### GPU Acceleration (CUDA)
+
+For significantly faster face recognition, you can use an NVIDIA GPU with CUDA support. This is recommended for:
+
+- Processing higher resolution video (1080p+)
+- Lower latency recognition
+- Running multiple concurrent streams
+- Reducing CPU load
+
+#### Supported Hardware
+
+- NVIDIA GPUs with CUDA Compute Capability 6.0+ (Pascal and newer)
+- Examples: GTX 1060+, RTX series, Tesla P4/T4/V100, Quadro series
+
+#### CUDA Setup
+
+**1. Install NVIDIA Drivers (if not already installed):**
+
+```bash
+# Check if drivers are installed
+nvidia-smi
+
+# If not installed, install appropriate driver
+sudo apt install nvidia-driver-535  # Check NVIDIA's site for recommended version
+sudo reboot
+```
+
+**2. Run setup with CUDA flag:**
+
+```bash
+sudo ./deploy/scripts/setup.sh --cuda
+```
+
+This will:
+- Verify NVIDIA drivers are present
+- Install `onnxruntime-gpu` instead of the CPU-only version
+- Configure InsightFace to use the GPU
+
+**3. Verify GPU is being used:**
+
+```bash
+# Watch GPU utilization while Stinger is running
+watch -n 1 nvidia-smi
+
+# Check which processes are using the GPU
+nvidia-smi --query-compute-apps=pid,name,used_memory --format=csv
+```
+
+You should see a Python process using GPU memory when Stinger is running.
+
+#### Switching Between CPU and GPU
+
+To switch an existing installation:
+
+```bash
+# Switch to GPU
+cd /opt/stinger
+source venv/bin/activate
+pip uninstall onnxruntime
+pip install onnxruntime-gpu
+sudo systemctl restart stinger
+
+# Switch to CPU
+cd /opt/stinger
+source venv/bin/activate
+pip uninstall onnxruntime-gpu
+pip install onnxruntime
+sudo systemctl restart stinger
+```
+
+#### Development Setup with CUDA
+
+For development, manually install the GPU package:
+
+```bash
+cd backend
+source venv/bin/activate
+pip uninstall onnxruntime
+pip install onnxruntime-gpu
+```
+
+Verify CUDA is available:
+
+```python
+import onnxruntime
+print(onnxruntime.get_available_providers())
+# Should include 'CUDAExecutionProvider' if GPU is available
+```
 
 ## Camera Masks
 
@@ -299,3 +391,22 @@ All recognition settings can be adjusted in real-time via the Settings page:
 - Increase `recognition_interval_ms` in Settings (default 200ms, try 500-1000ms)
 - Check logs for performance stats: `sudo journalctl -u stinger -f`
 - Consider using GPU acceleration (CUDA) on supported hardware
+
+### GPU not being used
+- Verify NVIDIA drivers: `nvidia-smi` should show your GPU
+- Check onnxruntime-gpu is installed: `pip show onnxruntime-gpu`
+- If only `onnxruntime` is installed, reinstall with `--cuda` flag or manually switch:
+  ```bash
+  pip uninstall onnxruntime && pip install onnxruntime-gpu
+  ```
+- Check for CUDA errors in logs: `sudo journalctl -u stinger -f`
+- Verify CUDA providers are available:
+  ```bash
+  python3 -c "import onnxruntime; print(onnxruntime.get_available_providers())"
+  ```
+  Should include `CUDAExecutionProvider`
+
+### CUDA out of memory errors
+- The Tesla P4 has 8GB VRAM which is plenty for face recognition
+- If you see OOM errors, check for other processes using GPU: `nvidia-smi`
+- Reduce camera resolution if needed

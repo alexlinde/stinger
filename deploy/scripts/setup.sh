@@ -3,22 +3,73 @@
 # Stinger Setup Script for Ubuntu/Debian Linux
 # This script installs all dependencies and sets up the Stinger service
 #
+# Usage:
+#   sudo ./setup.sh          # CPU-only installation
+#   sudo ./setup.sh --cuda   # Install with NVIDIA CUDA GPU support
+#
 
 set -e
 
 INSTALL_DIR="/opt/stinger"
 STINGER_USER="stinger"
 SERVICE_WAS_RUNNING=false
+USE_CUDA=false
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --cuda)
+            USE_CUDA=true
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: sudo ./setup.sh [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --cuda    Install with NVIDIA CUDA GPU support"
+            echo "  --help    Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
 
 echo "=========================================="
 echo "  Stinger Face Recognition Setup"
 echo "=========================================="
+echo ""
+if [ "$USE_CUDA" = true ]; then
+    echo "Mode: GPU (CUDA)"
+else
+    echo "Mode: CPU only"
+fi
 echo ""
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
     echo "Please run as root: sudo ./setup.sh"
     exit 1
+fi
+
+# If CUDA mode, verify NVIDIA drivers are installed
+if [ "$USE_CUDA" = true ]; then
+    if ! command -v nvidia-smi &> /dev/null; then
+        echo "ERROR: NVIDIA drivers not found."
+        echo ""
+        echo "Please install NVIDIA drivers first:"
+        echo "  sudo apt install nvidia-driver-535  # or appropriate version"
+        echo "  sudo reboot"
+        echo ""
+        echo "Then run this script again with --cuda"
+        exit 1
+    fi
+    echo "NVIDIA GPU detected:"
+    nvidia-smi --query-gpu=name,driver_version --format=csv,noheader
+    echo ""
 fi
 
 # Check if service is already running and stop it
@@ -77,6 +128,16 @@ echo ""
 echo "[6/8] Installing Python dependencies..."
 sudo -u "$STINGER_USER" "$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/backend/requirements.txt"
 
+# Install GPU or CPU version of onnxruntime
+if [ "$USE_CUDA" = true ]; then
+    echo ""
+    echo "Installing CUDA support (onnxruntime-gpu)..."
+    sudo -u "$STINGER_USER" "$INSTALL_DIR/venv/bin/pip" uninstall -y onnxruntime 2>/dev/null || true
+    sudo -u "$STINGER_USER" "$INSTALL_DIR/venv/bin/pip" install onnxruntime-gpu
+else
+    echo "Using CPU-only onnxruntime (use --cuda flag for GPU support)"
+fi
+
 echo ""
 echo "[7/8] Building frontend..."
 cd "$INSTALL_DIR/frontend"
@@ -104,6 +165,15 @@ echo "=========================================="
 echo "  Setup Complete!"
 echo "=========================================="
 echo ""
+if [ "$USE_CUDA" = true ]; then
+    echo "Mode: GPU (CUDA enabled)"
+else
+    echo "Mode: CPU only"
+    echo ""
+    echo "To enable GPU acceleration, reinstall with:"
+    echo "  sudo ./deploy/scripts/setup.sh --cuda"
+fi
+echo ""
 if [ "$SERVICE_WAS_RUNNING" = true ]; then
     echo "Stinger service has been restarted."
 else
@@ -117,6 +187,11 @@ echo ""
 echo "Management interface will be available at:"
 echo "  http://localhost:8000"
 echo ""
+if [ "$USE_CUDA" = true ]; then
+    echo "To verify GPU is being used:"
+    echo "  watch -n 1 nvidia-smi"
+    echo ""
+fi
 echo "Configuration can be done via environment variables in:"
 echo "  /opt/stinger/backend/.env"
 echo ""
