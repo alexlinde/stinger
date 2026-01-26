@@ -5,9 +5,11 @@ Local face recognition system with theme song playback. Designed to run on a ded
 ## Features
 
 - **Live Face Recognition**: Real-time face detection and matching via USB webcam
-- **Theme Song Playback**: Plays a unique theme song when a person is recognized (with 30-second cooldown)
-- **Web Management Interface**: Add people, upload photos, set theme songs
+- **Theme Song Playback**: Plays a unique theme song when a person is recognized (with configurable cooldown)
+- **Web Management Interface**: Add people, upload photos, set theme songs, and configure settings
 - **Live Camera Feed**: View the webcam feed with face detection overlays from any browser on the local network
+- **Camera Masks**: Exclude regions from face recognition (e.g., TVs, windows, posters)
+- **Runtime Settings**: Adjust recognition thresholds and options without restarting the server
 
 ## Architecture
 
@@ -46,6 +48,7 @@ Local face recognition system with theme song playback. Designed to run on a ded
 │  - Add/manage people and photos                         │
 │  - Upload theme songs                                   │
 │  - View live camera feed                                │
+│  - Configure settings and camera masks                  │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -59,17 +62,19 @@ stinger/
 │   │   ├── core/          # Face recognition, config
 │   │   ├── kiosk/         # Camera, audio, streaming
 │   │   └── main.py        # FastAPI app
+│   ├── data/
+│   │   ├── people/        # Photos and themes
+│   │   └── runtime_settings.json  # Runtime settings
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
 │   │   ├── pages/         # React pages
 │   │   │   ├── LiveView   # Live camera feed
 │   │   │   ├── PeopleList # People gallery
+│   │   │   ├── Settings   # Settings management
 │   │   │   └── ...
 │   │   └── ...
 │   └── package.json
-├── data/
-│   └── people/            # Photos and themes
 └── deploy/
     ├── systemd/           # Service file
     └── scripts/           # Setup scripts
@@ -149,55 +154,82 @@ sudo systemctl enable stinger
 
 ### Configuration
 
+Stinger uses two types of settings:
+
+- **Config Settings** (`.env` file): Read-only settings that require a server restart to change. These include hardware configuration like camera device and resolution.
+- **Runtime Settings** (`data/runtime_settings.json`): Editable settings that can be changed via the web UI without restarting the server. These include recognition thresholds, camera masks, and display options.
+
+#### Config Settings (`.env`)
+
 Create `/opt/stinger/backend/.env`:
 
 ```bash
-# Camera
+# Camera hardware (requires restart)
 CAMERA_DEVICE=0
 CAMERA_WIDTH=1280
 CAMERA_HEIGHT=720
-CAMERA_FPS=15
 
-# Kiosk
-KIOSK_ENABLED=true
-RECOGNITION_INTERVAL_MS=200
-
-# Face Recognition
-EMBEDDING_DISTANCE_THRESHOLD=0.6
-AUDIO_COOLDOWN_SECONDS=30.0
-
-# Performance (for slower hardware)
-LOW_POWER_MODE=false
-SKIP_UPSCALE_RETRY=false
+# Server
+HOST=0.0.0.0
+PORT=8000
+DEBUG=false
 ```
+
+#### Runtime Settings (Web UI)
+
+The following settings can be changed in the Settings page without restarting:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `detection_score_threshold` | 0.5 | Minimum confidence for face detection |
+| `embedding_distance_threshold` | 0.6 | Max distance for face matching (lower = stricter) |
+| `upscale_factor` | 1.5 | Image upscale factor for retry detection |
+| `audio_cooldown_seconds` | 30.0 | Cooldown between theme plays for same person |
+| `camera_fps` | 15 | Frame rate for video streaming |
+| `recognition_interval_ms` | 200 | Interval between recognition attempts |
+| `low_power_mode` | false | Enable adaptive performance for slow hardware |
+| `mirror_feed` | true | Mirror the camera feed horizontally |
+| `kiosk_enabled` | true | Enable/disable the kiosk recognition loop |
+| `camera_masks` | "" | JSON string of mask regions (use UI to edit) |
 
 ### Low Power Mode (Slow Hardware)
 
-For Raspberry Pi or other low-powered devices, create `/opt/stinger/backend/.env`:
+For Raspberry Pi or other low-powered devices:
 
+1. **Set lower resolution in `.env`** (requires restart):
 ```bash
-# Reduced resolution for better performance
 CAMERA_WIDTH=640
 CAMERA_HEIGHT=480
-CAMERA_FPS=10
-
-# Enable adaptive recognition interval
-LOW_POWER_MODE=true
-
-# Skip expensive upscaling when face not found
-SKIP_UPSCALE_RETRY=true
-
-# Base recognition interval (adapts automatically)
-RECOGNITION_INTERVAL_MS=500
-MIN_RECOGNITION_INTERVAL_MS=300
-MAX_RECOGNITION_INTERVAL_MS=2000
-TARGET_PROCESS_TIME_MS=200
 ```
 
-With `LOW_POWER_MODE=true`, the system will:
+2. **Enable Low Power Mode in the Settings page** (no restart needed):
+   - Set `low_power_mode` to `true`
+   - Increase `recognition_interval_ms` to 500 or higher
+   - Lower `camera_fps` to 10
+
+With Low Power Mode enabled, the system will:
 - Automatically increase recognition interval if processing is slow
 - Decrease interval when system has spare capacity
 - Log performance stats every 30 seconds
+
+## Camera Masks
+
+Camera masks allow you to exclude specific regions of the camera feed from face recognition. This is useful for:
+
+- Blocking out TVs or monitors that might show faces
+- Excluding windows where passersby might trigger false recognitions
+- Ignoring posters, photos, or artwork with faces
+
+### Using the Mask Editor
+
+1. Go to the **Settings** page or **Live View** page
+2. Click **Edit Masks** to open the mask editor
+3. Draw rectangles by clicking and dragging on the video feed
+4. Drag masks to reposition them, or use corner handles to resize
+5. Click the delete button (×) to remove a mask
+6. Click **Save Masks** to apply changes
+
+Masked regions appear as semi-transparent white overlays on the live feed and are excluded from face detection processing.
 
 ## Adding People
 
@@ -208,6 +240,8 @@ With `LOW_POWER_MODE=true`, the system will:
 5. Optionally upload a theme song (MP3, WAV, or M4A)
 
 ## API Endpoints
+
+### People
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -220,15 +254,31 @@ With `LOW_POWER_MODE=true`, the system will:
 | PUT | `/api/people/{name}/preview` | Set preview photo |
 | PUT | `/api/people/{name}/theme` | Upload theme |
 | DELETE | `/api/people/{name}/theme` | Delete theme |
+
+### Kiosk
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
 | GET | `/api/kiosk/stream` | MJPEG video stream |
 | GET | `/api/kiosk/status` | Kiosk status |
 | WS | `/api/kiosk/ws` | Recognition events |
 
+### Settings
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/settings` | Get all settings (config + runtime) |
+| PATCH | `/api/settings` | Update runtime settings |
+
 ## Recognition Tuning
 
-- **Distance Threshold**: Lower values (e.g., 0.5) are stricter, higher values (e.g., 0.7) are more lenient
+All recognition settings can be adjusted in real-time via the Settings page:
+
+- **Distance Threshold** (`embedding_distance_threshold`): Lower values (e.g., 0.5) are stricter, higher values (e.g., 0.7) are more lenient
+- **Detection Threshold** (`detection_score_threshold`): Minimum confidence for detecting a face (0.0 - 1.0)
 - **More Photos = Better**: Add 3-5 photos per person for best results
 - **Photo Quality**: Use well-lit, frontal face photos
+- **Camera Masks**: Use masks to exclude problem areas that cause false positives
 
 ## Troubleshooting
 
@@ -243,15 +293,9 @@ With `LOW_POWER_MODE=true`, the system will:
 - Test with: `speaker-test -t wav`
 
 ### Recognition too slow / laggy video feed
-- Enable `LOW_POWER_MODE=true` for adaptive performance
-- Reduce resolution: `CAMERA_WIDTH=640`, `CAMERA_HEIGHT=480`
-- Reduce FPS: `CAMERA_FPS=10`
-- Skip upscaling: `SKIP_UPSCALE_RETRY=true`
-- Increase `RECOGNITION_INTERVAL_MS` (default 200ms, try 500-1000ms)
+- Enable **Low Power Mode** in Settings for adaptive performance
+- Reduce resolution in `.env`: `CAMERA_WIDTH=640`, `CAMERA_HEIGHT=480` (requires restart)
+- Reduce FPS in Settings: lower `camera_fps` to 10
+- Increase `recognition_interval_ms` in Settings (default 200ms, try 500-1000ms)
 - Check logs for performance stats: `sudo journalctl -u stinger -f`
 - Consider using GPU acceleration (CUDA) on supported hardware
-
-## License
-
-MIT License
-
