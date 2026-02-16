@@ -96,6 +96,12 @@ apt-get install -y \
     npm \
     git
 
+if [ "$USE_CUDA" = true ]; then
+    echo ""
+    echo "Installing CUDA toolkit runtime libraries..."
+    apt-get install -y nvidia-cuda-toolkit
+fi
+
 echo ""
 echo "[2/8] Creating stinger user..."
 if ! id "$STINGER_USER" &>/dev/null; then

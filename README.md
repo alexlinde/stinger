@@ -396,15 +396,49 @@ All recognition settings can be adjusted in real-time via the Settings page:
 - Verify NVIDIA drivers: `nvidia-smi` should show your GPU
 - Check onnxruntime-gpu is installed: `pip show onnxruntime-gpu`
 - If only `onnxruntime` is installed, reinstall with `--cuda` flag or manually switch:
-  ```bash
-  pip uninstall onnxruntime && pip install onnxruntime-gpu
-  ```
-- Check for CUDA errors in logs: `sudo journalctl -u stinger -f`
+
+```bash
+pip uninstall onnxruntime && pip install onnxruntime-gpu
+```
+
 - Verify CUDA providers are available:
-  ```bash
-  python3 -c "import onnxruntime; print(onnxruntime.get_available_providers())"
-  ```
-  Should include `CUDAExecutionProvider`
+
+```bash
+python3 -c "import onnxruntime; print(onnxruntime.get_available_providers())"
+```
+
+Should include `CUDAExecutionProvider`
+
+### CUDA works interactively but not as a service
+
+If `python3 -c "import onnxruntime; print(onnxruntime.get_available_providers())"` shows `CUDAExecutionProvider` but the service logs show errors like `libcublasLt.so.12: cannot open shared object file`, the systemd service can't find the CUDA runtime libraries.
+
+**1. Install the CUDA toolkit runtime libraries** (provides cuBLAS, cuDNN, etc.):
+
+```bash
+sudo apt install nvidia-cuda-toolkit
+```
+
+**2. Ensure the service file has the CUDA library path.** The included `stinger.service` already sets `LD_LIBRARY_PATH` but if you've customised it, verify:
+
+```ini
+Environment=LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu
+```
+
+**3. Reload and restart:**
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart stinger
+```
+
+**4. Verify in the logs:**
+
+```bash
+sudo journalctl -u stinger -f
+```
+
+The `provider_bridge_ort.cc` CUDA errors should be gone.
 
 ### CUDA out of memory errors
 - The Tesla P4 has 8GB VRAM which is plenty for face recognition
