@@ -8,9 +8,7 @@ from typing import Optional
 
 import cv2
 import numpy as np
-import onnxruntime
 from PIL import Image, ImageOps
-from insightface.app import FaceAnalysis
 
 from .config import settings, get_runtime_settings
 
@@ -126,7 +124,7 @@ class FaceRecognitionEngine:
     """Face detection and recognition engine using InsightFace."""
 
     def __init__(self):
-        self._detector: Optional[FaceAnalysis] = None
+        self._detector = None
         self._people: dict[str, Person] = {}
         self._initialized = False
         self._cuda_error: Optional[str] = None
@@ -136,14 +134,29 @@ class FaceRecognitionEngine:
     def initialize(self) -> None:
         """Initialize the InsightFace detector.
         
+        Imports onnxruntime and insightface lazily so the app can start and
+        serve the web UI even if the CUDA/ONNX environment is broken.
+        
         If use_cuda is enabled but CUDAExecutionProvider is not available,
         sets a CUDA error and does not initialize the detector.
         """
         if self._initialized:
             return
         
-        self._available_providers = onnxruntime.get_available_providers()
-        logger.info("Available ONNX providers: %s", self._available_providers)
+        # Lazy import: onnxruntime-gpu can crash at import time if CUDA libs
+        # are missing. By importing here instead of at module level, the app
+        # can still start and show the error in the web UI.
+        try:
+            import onnxruntime
+            self._available_providers = onnxruntime.get_available_providers()
+            logger.info("Available ONNX providers: %s", self._available_providers)
+        except Exception as exc:
+            self._cuda_error = (
+                f"Failed to import onnxruntime: {exc}. "
+                "Check that onnxruntime (or onnxruntime-gpu) is installed correctly."
+            )
+            logger.error("onnxruntime import failed: %s", exc)
+            return
         
         cuda_available = "CUDAExecutionProvider" in self._available_providers
         
@@ -154,6 +167,17 @@ class FaceRecognitionEngine:
                 "Install onnxruntime-gpu and CUDA runtime libraries, or set USE_CUDA=false."
             )
             logger.error("CUDA validation failed: %s", self._cuda_error)
+            return
+        
+        try:
+            from insightface.app import FaceAnalysis
+        except Exception as exc:
+            self._cuda_error = (
+                f"Failed to import insightface: {exc}. "
+                "This usually means onnxruntime is not loading correctly. "
+                "Check that CUDA runtime libraries are available (LD_LIBRARY_PATH)."
+            )
+            logger.error("insightface import failed: %s", exc)
             return
         
         logger.info("Initializing InsightFace detector with model: %s", settings.insightface_model)
