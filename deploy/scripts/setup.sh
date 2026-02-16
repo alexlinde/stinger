@@ -96,12 +96,6 @@ apt-get install -y \
     npm \
     git
 
-if [ "$USE_CUDA" = true ]; then
-    echo ""
-    echo "Installing CUDA toolkit runtime libraries..."
-    apt-get install -y nvidia-cuda-toolkit
-fi
-
 echo ""
 echo "[2/8] Creating stinger user..."
 if ! id "$STINGER_USER" &>/dev/null; then
@@ -137,9 +131,14 @@ sudo -u "$STINGER_USER" "$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/bac
 # Install GPU or CPU version of onnxruntime
 if [ "$USE_CUDA" = true ]; then
     echo ""
-    echo "Installing CUDA support (onnxruntime-gpu)..."
+    echo "Installing CUDA support (onnxruntime-gpu + CUDA runtime libraries)..."
     sudo -u "$STINGER_USER" "$INSTALL_DIR/venv/bin/pip" uninstall -y onnxruntime 2>/dev/null || true
-    sudo -u "$STINGER_USER" "$INSTALL_DIR/venv/bin/pip" install onnxruntime-gpu
+    sudo -u "$STINGER_USER" "$INSTALL_DIR/venv/bin/pip" install \
+        onnxruntime-gpu \
+        nvidia-cublas-cu12 \
+        nvidia-cudnn-cu12 \
+        nvidia-cufft-cu12 \
+        nvidia-curand-cu12
 else
     echo "Using CPU-only onnxruntime (use --cuda flag for GPU support)"
 fi
@@ -156,6 +155,21 @@ chown -R "$STINGER_USER:$STINGER_USER" "$INSTALL_DIR/backend/static"
 
 echo ""
 echo "[8/8] Installing systemd service..."
+
+# Configure CUDA library path in the service file if using GPU
+if [ "$USE_CUDA" = true ]; then
+    SITE_PKGS=$("$INSTALL_DIR/venv/bin/python3" -c "import site; print(site.getsitepackages()[0])")
+    CUDA_LD_PATH="${SITE_PKGS}/nvidia/cublas/lib"
+    CUDA_LD_PATH="${CUDA_LD_PATH}:${SITE_PKGS}/nvidia/cudnn/lib"
+    CUDA_LD_PATH="${CUDA_LD_PATH}:${SITE_PKGS}/nvidia/cufft/lib"
+    CUDA_LD_PATH="${CUDA_LD_PATH}:${SITE_PKGS}/nvidia/curand/lib"
+    CUDA_LD_PATH="${CUDA_LD_PATH}:/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu"
+
+    # Uncomment and set the LD_LIBRARY_PATH line in the service file
+    sed -i "s|# Environment=LD_LIBRARY_PATH=|Environment=LD_LIBRARY_PATH=${CUDA_LD_PATH}|" /etc/systemd/system/stinger.service
+    echo "Configured CUDA library path for systemd service"
+fi
+
 systemctl daemon-reload
 systemctl enable stinger
 

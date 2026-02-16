@@ -250,8 +250,9 @@ sudo ./deploy/scripts/setup.sh --cuda
 
 This will:
 - Verify NVIDIA drivers are present
-- Install `onnxruntime-gpu` instead of the CPU-only version
-- Configure InsightFace to use the GPU
+- Install `onnxruntime-gpu` with CUDA runtime libraries (cuBLAS, cuDNN, cuFFT, cuRAND) via pip
+- Configure the systemd service `LD_LIBRARY_PATH` to find the CUDA libraries
+- No system-wide CUDA toolkit installation required
 
 **3. Verify GPU is being used:**
 
@@ -274,27 +275,31 @@ To switch an existing installation:
 cd /opt/stinger
 source venv/bin/activate
 pip uninstall onnxruntime
-pip install onnxruntime-gpu
+pip install onnxruntime-gpu nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cufft-cu12 nvidia-curand-cu12
 sudo systemctl restart stinger
 
 # Switch to CPU
 cd /opt/stinger
 source venv/bin/activate
-pip uninstall onnxruntime-gpu
+pip uninstall onnxruntime-gpu nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cufft-cu12 nvidia-curand-cu12
 pip install onnxruntime
 sudo systemctl restart stinger
 ```
 
+Note: When manually switching to GPU, you also need to set `LD_LIBRARY_PATH` in the service file. The easiest way is to re-run the setup script with `--cuda`.
+
 #### Development Setup with CUDA
 
-For development, manually install the GPU package:
+For development, install the GPU packages in your local venv:
 
 ```bash
 cd backend
 source venv/bin/activate
 pip uninstall onnxruntime
-pip install onnxruntime-gpu
+pip install onnxruntime-gpu nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cufft-cu12 nvidia-curand-cu12
 ```
+
+The CUDA libraries are installed as pip packages inside the venv, so no system CUDA toolkit is needed.
 
 Verify CUDA is available:
 
@@ -413,17 +418,29 @@ Should include `CUDAExecutionProvider`
 
 If `python3 -c "import onnxruntime; print(onnxruntime.get_available_providers())"` shows `CUDAExecutionProvider` but the service logs show errors like `libcublasLt.so.12: cannot open shared object file`, the systemd service can't find the CUDA runtime libraries.
 
-**1. Install the CUDA toolkit runtime libraries** (provides cuBLAS, cuDNN, etc.):
+This happens because systemd services run with a minimal environment that doesn't include the library paths your interactive shell has.
+
+**1. Ensure the CUDA pip packages are installed** (provides cuBLAS, cuDNN, etc. without needing the full system CUDA toolkit):
 
 ```bash
-sudo apt install nvidia-cuda-toolkit
+cd /opt/stinger
+source venv/bin/activate
+pip install nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cufft-cu12 nvidia-curand-cu12
 ```
 
-**2. Ensure the service file has the CUDA library path.** The included `stinger.service` already sets `LD_LIBRARY_PATH` but if you've customised it, verify:
+**2. Set `LD_LIBRARY_PATH` in the service file** so systemd can find the libraries. The easiest way is to re-run setup:
 
-```ini
-Environment=LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu
+```bash
+sudo ./deploy/scripts/setup.sh --cuda
 ```
+
+Or manually edit `/etc/systemd/system/stinger.service` to add the path. Find the site-packages path for your Python version:
+
+```bash
+/opt/stinger/venv/bin/python3 -c "import site; print(site.getsitepackages()[0])"
+```
+
+Then set `LD_LIBRARY_PATH` to include `<site-packages>/nvidia/cublas/lib`, `<site-packages>/nvidia/cudnn/lib`, etc.
 
 **3. Reload and restart:**
 

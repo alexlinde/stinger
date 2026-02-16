@@ -9,7 +9,8 @@ Group=stinger
 WorkingDirectory=/opt/stinger/backend
 Environment=PATH=/opt/stinger/venv/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PYTHONUNBUFFERED=1
-Environment=LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu
+# CUDA library paths (set by setup.sh when using --cuda)
+# Environment=LD_LIBRARY_PATH=
 ExecStart=/opt/stinger/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5
