@@ -192,6 +192,7 @@ export default function LiveView() {
         fps: message.fps ?? prev?.fps ?? 0,
         frame_count: prev?.frame_count ?? 0,
         people_count: message.people_count ?? prev?.people_count ?? 0,
+        cuda_error: prev?.cuda_error ?? null,
       }))
     }
   }
