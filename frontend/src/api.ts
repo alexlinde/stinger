@@ -109,6 +109,7 @@ export interface KioskStatus {
   fps: number;
   frame_count: number;
   people_count: number;
+  cuda_error: string | null;
 }
 
 /**
@@ -123,6 +124,10 @@ export interface ConfigSettings {
   camera_device: number;
   camera_width: number;
   camera_height: number;
+  use_cuda: boolean;
+  onnx_providers: string[];
+  active_provider: string | null;
+  cuda_error: string | null;
 }
 
 /**

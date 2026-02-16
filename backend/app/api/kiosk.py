@@ -74,6 +74,7 @@ async def get_kiosk_status():
         fps=round(kiosk_state.fps, 1),
         frame_count=kiosk_state.frame_count,
         people_count=len(engine.people),
+        cuda_error=engine.cuda_error,
     )
 
 

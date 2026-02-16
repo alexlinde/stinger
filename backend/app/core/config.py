@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # InsightFace model
     insightface_model: str = "buffalo_l"
     
+    # GPU acceleration
+    use_cuda: bool = False
+    
     # Camera hardware settings (require restart to change camera)
     camera_device: int = 0
     camera_width: int = 1280

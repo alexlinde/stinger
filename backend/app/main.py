@@ -37,13 +37,19 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Stinger...")
     logger.info("Initializing face recognition engine...")
     engine.initialize()
-    logger.info("Loading people gallery...")
-    engine.load_gallery()
-    logger.info("Startup complete. %d people loaded.", len(engine.people))
     
-    # Start kiosk background task
+    if engine.cuda_error:
+        logger.error("Face recognition engine failed to start: %s", engine.cuda_error)
+    else:
+        logger.info("Loading people gallery...")
+        engine.load_gallery()
+        logger.info("Startup complete. %d people loaded.", len(engine.people))
+    
+    # Start kiosk background task (only if engine initialized successfully)
     rs = get_runtime_settings()
-    if rs.kiosk_enabled:
+    if engine.cuda_error:
+        logger.error("Kiosk will not start: CUDA is required but not available")
+    elif rs.kiosk_enabled:
         logger.info("Starting kiosk background task...")
         _kiosk_task = await start_kiosk()
     else:

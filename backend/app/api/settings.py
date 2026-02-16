@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ..core.config import settings, runtime_settings_manager, RuntimeSettings
+from ..core.face import engine
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -20,6 +21,10 @@ class ConfigSettingsResponse(BaseModel):
     camera_device: int = Field(description="Camera device index")
     camera_width: int = Field(description="Camera resolution width")
     camera_height: int = Field(description="Camera resolution height")
+    use_cuda: bool = Field(description="Whether CUDA GPU acceleration is required")
+    onnx_providers: list[str] = Field(description="Available ONNX execution providers")
+    active_provider: Optional[str] = Field(description="Currently active ONNX execution provider")
+    cuda_error: Optional[str] = Field(default=None, description="CUDA error message if use_cuda is set but CUDA is unavailable")
 
 
 class RuntimeSettingsResponse(BaseModel):
@@ -70,6 +75,10 @@ def get_config_settings() -> ConfigSettingsResponse:
         camera_device=settings.camera_device,
         camera_width=settings.camera_width,
         camera_height=settings.camera_height,
+        use_cuda=settings.use_cuda,
+        onnx_providers=engine.available_providers,
+        active_provider=engine.active_provider,
+        cuda_error=engine.cuda_error,
     )
 
 

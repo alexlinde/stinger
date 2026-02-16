@@ -8,6 +8,7 @@ from typing import Optional
 
 import cv2
 import numpy as np
+import onnxruntime
 from PIL import Image, ImageOps
 from insightface.app import FaceAnalysis
 
@@ -128,21 +129,69 @@ class FaceRecognitionEngine:
         self._detector: Optional[FaceAnalysis] = None
         self._people: dict[str, Person] = {}
         self._initialized = False
+        self._cuda_error: Optional[str] = None
+        self._available_providers: list[str] = []
+        self._active_provider: Optional[str] = None
 
     def initialize(self) -> None:
-        """Initialize the InsightFace detector."""
+        """Initialize the InsightFace detector.
+        
+        If use_cuda is enabled but CUDAExecutionProvider is not available,
+        sets a CUDA error and does not initialize the detector.
+        """
         if self._initialized:
             return
         
+        self._available_providers = onnxruntime.get_available_providers()
+        logger.info("Available ONNX providers: %s", self._available_providers)
+        
+        cuda_available = "CUDAExecutionProvider" in self._available_providers
+        
+        if settings.use_cuda and not cuda_available:
+            self._cuda_error = (
+                "CUDA is required (USE_CUDA=true) but CUDAExecutionProvider is not available. "
+                "Available providers: " + ", ".join(self._available_providers) + ". "
+                "Install onnxruntime-gpu and CUDA runtime libraries, or set USE_CUDA=false."
+            )
+            logger.error("CUDA validation failed: %s", self._cuda_error)
+            return
+        
         logger.info("Initializing InsightFace detector with model: %s", settings.insightface_model)
+        
+        if settings.use_cuda and cuda_available:
+            self._active_provider = "CUDAExecutionProvider"
+            logger.info("Using GPU acceleration (CUDA)")
+        else:
+            self._active_provider = "CPUExecutionProvider"
+            if not settings.use_cuda:
+                logger.info("Using CPU (USE_CUDA not enabled)")
+            else:
+                logger.info("Using CPU (CUDA not available)")
+        
         self._detector = FaceAnalysis(name=settings.insightface_model)
-        self._detector.prepare(ctx_id=0, det_size=(640, 640))
+        self._detector.prepare(ctx_id=0 if cuda_available and settings.use_cuda else -1, det_size=(640, 640))
         self._initialized = True
-        logger.info("InsightFace detector initialized")
+        self._cuda_error = None
+        logger.info("InsightFace detector initialized with %s", self._active_provider)
 
     @property
     def is_initialized(self) -> bool:
         return self._initialized
+
+    @property
+    def cuda_error(self) -> Optional[str]:
+        """Returns CUDA error message if use_cuda is set but CUDA is unavailable."""
+        return self._cuda_error
+
+    @property
+    def available_providers(self) -> list[str]:
+        """Returns list of available ONNX execution providers."""
+        return self._available_providers
+
+    @property
+    def active_provider(self) -> Optional[str]:
+        """Returns the active ONNX execution provider."""
+        return self._active_provider
 
     @property
     def people(self) -> dict[str, Person]:

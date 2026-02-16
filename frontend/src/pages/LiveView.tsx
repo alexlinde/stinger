@@ -259,6 +259,19 @@ export default function LiveView() {
         initialMasks={masks}
       />
 
+      {/* CUDA Error */}
+      {status?.cuda_error && (
+        <div className="mb-6 p-4 rounded-lg bg-red-500/10 border border-red-500/40">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl flex-shrink-0">⚠️</span>
+            <div>
+              <h4 className="font-bold text-red-400 mb-1">CUDA Error — Recognition Disabled</h4>
+              <p className="text-sm text-red-300/80">{status.cuda_error}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Error */}
       {error && (
         <div className="mb-6 p-4 rounded-lg bg-stinger-warning/20 border border-stinger-warning/50 text-stinger-warning">
@@ -279,16 +292,30 @@ export default function LiveView() {
                 />
               ) : (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-stinger-muted">
-                  <div className="text-6xl mb-4">📷</div>
-                  <p className="text-lg font-medium">
-                    {!status?.running 
-                      ? 'Kiosk not running'
-                      : 'Camera not connected'
-                    }
-                  </p>
-                  <p className="text-sm mt-2">
-                    Check the server logs for details
-                  </p>
+                  {status?.cuda_error ? (
+                    <>
+                      <div className="text-6xl mb-4">🎮</div>
+                      <p className="text-lg font-medium text-red-400">
+                        CUDA Required but Unavailable
+                      </p>
+                      <p className="text-sm mt-2 text-red-300/60 max-w-md text-center">
+                        Recognition is disabled. Install CUDA runtime libraries or set USE_CUDA=false.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-6xl mb-4">📷</div>
+                      <p className="text-lg font-medium">
+                        {!status?.running 
+                          ? 'Kiosk not running'
+                          : 'Camera not connected'
+                        }
+                      </p>
+                      <p className="text-sm mt-2">
+                        Check the server logs for details
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
               

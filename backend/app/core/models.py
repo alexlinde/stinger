@@ -93,4 +93,5 @@ class KioskStatusResponse(BaseModel):
     fps: float
     frame_count: int
     people_count: int
+    cuda_error: Optional[str] = None
 

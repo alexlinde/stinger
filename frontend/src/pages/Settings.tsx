@@ -204,6 +204,19 @@ export default function Settings() {
         initialMasks={masks}
       />
 
+      {/* CUDA Error Banner */}
+      {configSettings.cuda_error && (
+        <div className="mb-6 p-4 rounded-lg bg-red-500/10 border border-red-500/40">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl flex-shrink-0">⚠️</span>
+            <div>
+              <h4 className="font-bold text-red-400 mb-1">CUDA Error — Recognition Disabled</h4>
+              <p className="text-sm text-red-300/80">{configSettings.cuda_error}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* System Configuration (Read-only) */}
       <div className="card p-6 mb-6">
         <div className="flex items-center gap-3 mb-6">
@@ -221,6 +234,50 @@ export default function Settings() {
           <ConfigItem label="Model" value={configSettings.insightface_model} />
           <ConfigItem label="Camera" value={`Device ${configSettings.camera_device}`} />
           <ConfigItem label="Resolution" value={`${configSettings.camera_width}x${configSettings.camera_height}`} />
+          <ConfigItem label="Use CUDA" value={configSettings.use_cuda ? 'Enabled' : 'Disabled'} />
+        </div>
+      </div>
+
+      {/* ONNX Execution Providers */}
+      <div className="card p-6 mb-6">
+        <div className="flex items-center gap-3 mb-6">
+          <span className="text-2xl">🧠</span>
+          <div>
+            <h3 className="text-lg font-display font-bold text-white">Execution Providers</h3>
+            <p className="text-xs text-stinger-muted">ONNX Runtime execution providers detected on this system</p>
+          </div>
+        </div>
+        <div className="space-y-2">
+          {configSettings.onnx_providers.length === 0 ? (
+            <p className="text-sm text-stinger-muted">No providers detected</p>
+          ) : (
+            configSettings.onnx_providers.map((provider) => {
+              const isActive = provider === configSettings.active_provider
+              const isCuda = provider === 'CUDAExecutionProvider'
+              return (
+                <div
+                  key={provider}
+                  className={`flex items-center justify-between p-3 rounded-lg ${
+                    isActive
+                      ? 'bg-stinger-accent/10 border border-stinger-accent/30'
+                      : 'bg-stinger-bg/50'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg">{isCuda ? '🎮' : '💻'}</span>
+                    <span className={`text-sm font-mono ${isActive ? 'text-stinger-accent font-bold' : 'text-white'}`}>
+                      {provider}
+                    </span>
+                  </div>
+                  {isActive && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-stinger-accent/20 text-stinger-accent">
+                      Active
+                    </span>
+                  )}
+                </div>
+              )
+            })
+          )}
         </div>
       </div>
 

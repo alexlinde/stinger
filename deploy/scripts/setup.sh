@@ -168,6 +168,23 @@ if [ "$USE_CUDA" = true ]; then
     # Uncomment and set the LD_LIBRARY_PATH line in the service file
     sed -i "s|# Environment=LD_LIBRARY_PATH=|Environment=LD_LIBRARY_PATH=${CUDA_LD_PATH}|" /etc/systemd/system/stinger.service
     echo "Configured CUDA library path for systemd service"
+
+    # Set USE_CUDA=true in the .env file
+    ENV_FILE="$INSTALL_DIR/backend/.env"
+    if [ -f "$ENV_FILE" ]; then
+        if grep -q "^USE_CUDA=" "$ENV_FILE"; then
+            sed -i "s|^USE_CUDA=.*|USE_CUDA=true|" "$ENV_FILE"
+        else
+            echo "" >> "$ENV_FILE"
+            echo "# GPU acceleration" >> "$ENV_FILE"
+            echo "USE_CUDA=true" >> "$ENV_FILE"
+        fi
+    else
+        echo "# GPU acceleration" > "$ENV_FILE"
+        echo "USE_CUDA=true" >> "$ENV_FILE"
+    fi
+    chown "$STINGER_USER:$STINGER_USER" "$ENV_FILE"
+    echo "Set USE_CUDA=true in $ENV_FILE"
 fi
 
 systemctl daemon-reload
